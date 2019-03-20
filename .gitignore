@@ -1,0 +1,3 @@
+*.pyc
+configurations.py
+__pycache__
