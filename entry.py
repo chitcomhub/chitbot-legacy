@@ -1,44 +1,56 @@
+# Бот написан на Python 3.7
+
 import requests
-import sqlite3
 import configurations # содержит токен
 
-# соединение с SQLite3
-def create_connection():
-	conn = sqlite3.connect("champ.db")
-	cursor = conn.cursor()
-	sql = "SELECT rowid, * FROM tasks ORDER BY title"
-	tasks = [row for row in cursor.execute(sql)]
-	conn.close()
-	return(tasks)
+# добавление данных в DynamoDB
+import boto3
+
+dynamodb = boto3.resource('dynamodb')
+table = dynamodb.Table('top')
+
 
 def point(event, context):
 	print(event)
+
 	message_text = event["message"]["text"]
 	chat_id = event["message"]["chat"]["id"]
 	chiter = event["message"]["from"]["username"]
-	tasks = create_connection()
 
 	# главные команды
 	if message_text[0] == "/":
 		words = event["message"]["text"].split()
 		command = words[0][1:]
 		if command == "start":
-			champ_text = "Начнем турнир по программированию"
-			send_message(chat_id, champ_text)
+			start_text = "Начнем турнир по программированию"
+			send_message(chat_id, start_text)
 		elif command == "tasks":
 			for i in tasks:
-				task = "%s: \n %s" % (i[1], i[2])
-				send_message(chat_id, task)
-		elif command == "help":
-			help_text = "Вы можете решать задачи на любом языке программирования"
-			send_message(chat_id, help_text)
-	
-	# сравнение ответов
-	for i in tasks:
-		answers = "%s%s:%s" % ("task_", i[0], i[3])
-		if message_text == answers:
-			answer = "Участник @%s решил Задачу №%s\nОтвет: %s" % (chiter, i[0], i[3])
-			send_message(chat_id, answer)
+				tasks_text = "%s: \n %s" % (i[1], i[2])
+				send_message(chat_id, tasks_text)
+		elif command == "top":
+			
+			# достаем из БД DynamoDB таблицу top
+			response = table.scan()
+			items = response['Items']
+
+			# функция сортирует по столбцу points
+			def get_key(key):
+				return key['points']
+
+			sorted_items = sorted(items, key = get_key, reverse = True)
+
+			text = 'Рейтинг программистов:\n\n№ | Никнейм | Имя | Баллы\n\n'
+			n = 0
+			for i in sorted_items:
+				print(i)
+				n += 1
+				text += " %s  | @%s | %s | %s\n" % (n,
+					i['nickname'],
+					i['name'],
+					i['points'])
+
+			send_message(chat_id, '%s' % text.strip())
 
 def send_message(chat_id, text):
 	url = "https://api.telegram.org/bot{token}/{method}".format(
