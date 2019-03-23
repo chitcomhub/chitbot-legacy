@@ -1,9 +1,7 @@
 # Бот написан на Python 3.7
 
 import requests
-import configurations # содержит токен
-
-# добавление данных в DynamoDB
+import configurations # содержит токен и id группы
 import boto3
 
 def point(event, context):
@@ -27,6 +25,9 @@ def point(event, context):
 	user_id = event["message"]["from"]["id"]
 	name = event["message"]["from"]["first_name"]
 
+	if chat_id != configurations.group_id:
+		send_message(chat_id, "Мне запрещено общаться вне группы CHITCOM")
+		raise Exception('Попытались мне написать в чате: ' + str(chat_id))
 
 	if message_text == "reg_me":
 		this_user = True
@@ -51,14 +52,15 @@ def point(event, context):
 	elif message_text[0] == "/":
 		words = event["message"]["text"].split()
 		command = words[0][1:]
-		if command == "start":
-			start_text = """Начнем турнир по программированию CHIT CHAMP.
+		if command == "start" or command == "start@chit_champ_bot":
+			start_text = """
+					Начнем турнир по программированию CHIT CHAMP.
 				Но прежде, чем ты начнешь выполнять задачи,
 				в кратце объясню что это за турнир и какие на нем правила.
 				Турнир расчитан на то, чтобы определить сильнейших
 				программистов в CHITCOM комьюнити.
 
-				Правила:
+					Правила:
 				1. Для начала надо зарегистрироваться.
 					просто отправь мне текст reg_me
 					После этого ты сможешь себя увидеть в рейтинге,
@@ -67,17 +69,17 @@ def point(event, context):
 					Чтобы ты был на высоте,
 					тебе нужно набирать баллы,
 					выполняя задачи.
-				4. /tasks - задачи, которые тебе придется решить.
+				4. /task - задачи, которые тебе придется решить.
 					За каждое выполненную задачу ты получаешь 1 балл.
 					Главное, побыстрее выполнить все задачи,
 					так как балл забирает тот, кто первым выполнит задачу.
 
-				Стань победителем CHIT CHAMP и выиграй 1.000.000.000 рублей (нет).
+					Стань победителем CHIT CHAMP и выиграй 1.000.000.000 рублей (нет).
 				Ты получишь мотивацию развиваться, как программист."""
 
 			send_message(chat_id, start_text)
-			
-		elif command == "tasks":
+
+		elif command == "task" or command == "task@chit_champ_bot":
 
 			# функция сортирует по столбцу id
 			def get_key(key):
@@ -97,7 +99,7 @@ def point(event, context):
 				Наберите /top, чтобы увидеть рейтинг программистов"""
 				send_message(chat_id, end_text)
 
-		elif command == "top":
+		elif command == "top" or command == "top@chit_champ_bot":
 
 			# функция сортирует по столбцу points
 			def get_key(key):
@@ -119,11 +121,11 @@ def point(event, context):
 	# сравнение ответов
 	else:
 		for i in tasks_items:
-			solution = "%s:%s" % (i['id'], i['solution'])
+			solution = "%s%s:%s" % ('task', i['id'], i['solution'])
 			if message_text.replace(' ', '') == solution and i['winner'] == '0':
 				answer = """@%s решил Задачу №%s и получил 1 балл.
 					Решение: %s.
-					Чтоб перейти на следующее задание, введите /tasks
+					Чтоб перейти на следующее задание, введите /task
 					""" % (username, i['id'], i['solution'])
 
 				# добавляем правильно ответившего в поле winner
@@ -159,7 +161,7 @@ def point(event, context):
 				answer = """Эту задачу уже решил @%s.
 					Решение: %s.
 					Вы должны решить уже следующую задачу.
-					Чтоб перейти на следующее задание, введите /tasks
+					Чтоб перейти к действующей задаче, введите /task
 					""" % (i['winner'], i['solution'])
 
 				send_message(chat_id, answer)
