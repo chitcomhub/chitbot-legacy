@@ -6,51 +6,165 @@ import configurations # содержит токен
 # добавление данных в DynamoDB
 import boto3
 
-dynamodb = boto3.resource('dynamodb')
-table = dynamodb.Table('top')
-
-
 def point(event, context):
 	print(event)
 
+	dynamodb = boto3.resource('dynamodb')
+	top_table = dynamodb.Table('top')
+	tasks_table = dynamodb.Table('tasks')
+
+	# достаем из БД DynamoDB таблицу tasks
+	response = tasks_table.scan()
+	tasks_items = response['Items']
+
+	# достаем из БД DynamoDB таблицу top
+	response = top_table.scan()
+	top_items = response['Items']
+
 	message_text = event["message"]["text"]
 	chat_id = event["message"]["chat"]["id"]
-	chiter = event["message"]["from"]["username"]
+	username = event["message"]["from"]["username"]
+	user_id = event["message"]["from"]["id"]
+	name = event["message"]["from"]["first_name"]
+
+
+	if message_text == "reg_me":
+		this_user = True
+		for i in top_items:
+			if int(user_id) == i['id']:
+				send_message(chat_id, 'Ты уже ранее был зарегистрирован\nСмотри в /top')
+				this_user = False
+				break
+		
+		if this_user == True:
+			top_table.put_item(
+			   Item={
+			   		'id' : user_id,
+			        'nickname': username,
+			        'name': name,
+			        'points': 0
+			    }
+			)
+			send_message(chat_id, "Я занес вас в список участников\nСмотри в /top")
 
 	# главные команды
-	if message_text[0] == "/":
+	elif message_text[0] == "/":
 		words = event["message"]["text"].split()
 		command = words[0][1:]
 		if command == "start":
-			start_text = "Начнем турнир по программированию"
+			start_text = """Начнем турнир по программированию CHIT CHAMP.
+				Но прежде, чем ты начнешь выполнять задачи,
+				в кратце объясню что это за турнир и какие на нем правила.
+				Турнир расчитан на то, чтобы определить сильнейших
+				программистов в CHITCOM комьюнити.
+
+				Правила:
+				1. Для начала надо зарегистрироваться.
+					просто отправь мне текст reg_me
+					После этого ты сможешь себя увидеть в рейтинге,
+					отправив мне /top
+				3. /top - это рейтинг программистов.
+					Чтобы ты был на высоте,
+					тебе нужно набирать баллы,
+					выполняя задачи.
+				4. /tasks - задачи, которые тебе придется решить.
+					За каждое выполненную задачу ты получаешь 1 балл.
+					Главное, побыстрее выполнить все задачи,
+					так как балл забирает тот, кто первым выполнит задачу.
+
+				Стань победителем CHIT CHAMP и выиграй 1.000.000.000 рублей (нет).
+				Ты получишь мотивацию развиваться, как программист."""
+
 			send_message(chat_id, start_text)
-		elif command == "tasks":
-			for i in tasks:
-				tasks_text = "%s: \n %s" % (i[1], i[2])
-				send_message(chat_id, tasks_text)
-		elif command == "top":
 			
-			# достаем из БД DynamoDB таблицу top
-			response = table.scan()
-			items = response['Items']
+		elif command == "tasks":
+
+			# функция сортирует по столбцу id
+			def get_key(key):
+				return key['id']
+
+			sorted_items = sorted(tasks_items, key = get_key)
+
+			end_game = True
+			for i in sorted_items:
+				if i['winner'] == "0":
+					tasks_text = "Задача №%s: \n\t%s\n\n" % (i['id'], i['task'])
+					send_message(chat_id, tasks_text)
+					end_game = False
+					break
+			if end_game == True:
+				end_text = """Турнир окончен.
+				Наберите /top, чтобы увидеть рейтинг программистов"""
+				send_message(chat_id, end_text)
+
+		elif command == "top":
 
 			# функция сортирует по столбцу points
 			def get_key(key):
 				return key['points']
 
-			sorted_items = sorted(items, key = get_key, reverse = True)
+			sorted_items = sorted(top_items, key = get_key, reverse = True)
 
-			text = 'Рейтинг программистов:\n\n№ | Никнейм | Имя | Баллы\n\n'
+			top_text = 'Рейтинг программистов:\n\n№ | Никнейм | Имя | Баллы\n\n'
 			n = 0
 			for i in sorted_items:
-				print(i)
 				n += 1
-				text += " %s  | @%s | %s | %s\n" % (n,
+				top_text += " %s  | @%s | %s | %s\n" % (n,
 					i['nickname'],
 					i['name'],
 					i['points'])
 
-			send_message(chat_id, '%s' % text.strip())
+			send_message(chat_id, '%s' % top_text.strip())
+
+	# сравнение ответов
+	else:
+		for i in tasks_items:
+			solution = "%s:%s" % (i['id'], i['solution'])
+			if message_text.replace(' ', '') == solution and i['winner'] == '0':
+				answer = """@%s решил Задачу №%s и получил 1 балл.
+					Решение: %s.
+					Чтоб перейти на следующее задание, введите /tasks
+					""" % (username, i['id'], i['solution'])
+
+				# добавляем правильно ответившего в поле winner
+				tasks_table.update_item(
+				    Key={
+				        'id': i['id']
+				    },
+				    UpdateExpression='SET winner = :val1',
+				    ExpressionAttributeValues={
+				        ':val1': username
+				    }
+				)
+
+				# добавляем балл за верный ответ
+				for i in top_items:
+					if i['id'] == int(user_id):
+						point = i['points']
+
+				top_table.update_item(
+				    Key={
+				        'id': user_id
+				    },
+				    UpdateExpression='SET points = :val1',
+				    ExpressionAttributeValues={
+				        ':val1': point + 1
+				    }
+				)
+
+				send_message(chat_id, answer)
+				break
+
+			elif message_text.replace(' ', '') == solution:
+				answer = """Эту задачу уже решил @%s.
+					Решение: %s.
+					Вы должны решить уже следующую задачу.
+					Чтоб перейти на следующее задание, введите /tasks
+					""" % (i['winner'], i['solution'])
+
+				send_message(chat_id, answer)
+				break
+
 
 def send_message(chat_id, text):
 	url = "https://api.telegram.org/bot{token}/{method}".format(
