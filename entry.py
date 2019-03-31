@@ -10,6 +10,7 @@ def point(event, context):
 	dynamodb = boto3.resource('dynamodb')
 	top_table = dynamodb.Table('top')
 	tasks_table = dynamodb.Table('tasks')
+	admin_table = dynamodb.Table('admin')
 
 	# достаем из БД DynamoDB таблицу tasks
 	response = tasks_table.scan()
@@ -19,65 +20,96 @@ def point(event, context):
 	response = top_table.scan()
 	top_items = response['Items']
 
+	# достаем из БД DynamoDB таблицу admin
+	response = admin_table.scan()
+	admin_items = response['Items']
+
 	message_text = event["message"]["text"]
 	chat_id = event["message"]["chat"]["id"]
 	username = event["message"]["from"]["username"]
 	user_id = event["message"]["from"]["id"]
 	name = event["message"]["from"]["first_name"]
 
-	if chat_id != configurations.group_id:
-		send_message(chat_id, "Мне запрещено общаться вне группы CHITCOM")
-		raise Exception('Попытались мне написать в чате: ' + str(chat_id))
+	# команды для админа
+	for i in admin_items:
+		admin_id = i['id']
+		if message_text[0] == "/" and user_id == admin_id:
+			words = message_text.split()
+			command = words[0][1:]
+			if command == "admin" or command == "admin@chit_champ_bot":
+				text = """
+					Неужели сам %s пожаловал?!
+					У меня в меню есть следующие команды:
 
-	if message_text == "reg_me":
-		this_user = True
-		for i in top_items:
-			if int(user_id) == i['id']:
-				send_message(chat_id, 'Ты уже ранее был зарегистрирован\nСмотри в /top')
-				this_user = False
-				break
-		
-		if this_user == True:
-			top_table.put_item(
-			   Item={
-			   		'id' : user_id,
-			        'nickname': username,
-			        'name': name,
-			        'points': 0
-			    }
-			)
-			send_message(chat_id, "Я занес вас в список участников\nСмотри в /top")
+					/start - начать турнир.
+					/add_champ - добавить новый турнир. (не работает)
+					/get_champ - показать N-ый турнир. (не работает)
+					/list_champ - получить список турниров. (не работает)
+					/update_champ - обновить турнир. (не работает)
+					/delete_champ - удалить турнир. (не работает)
+					/add_admin - добавить нового админа. (не работает)
+					/list_champ - список админов. (не работает)
+					""" % i['name']
+				send_message(chat_id, text)
 
-	# главные команды
-	elif message_text[0] == "/":
-		words = event["message"]["text"].split()
-		command = words[0][1:]
-		if command == "start" or command == "start@chit_champ_bot":
-			start_text = """
+			elif command == "start" or command == "start@chit_champ_bot":
+				text = """
 					Начнем турнир по программированию CHIT CHAMP.
-				Но прежде, чем ты начнешь выполнять задачи,
-				в кратце объясню что это за турнир и какие на нем правила.
-				Турнир расчитан на то, чтобы определить сильнейших
-				программистов в CHITCOM комьюнити.
+					Турнир определит сильнейших программистов в CHITCOM комьюнити.
 
-					Правила:
-				1. Для начала надо зарегистрироваться.
-					просто отправь мне текст reg_me
-					После этого ты сможешь себя увидеть в рейтинге,
-					отправив мне /top
-				3. /top - это рейтинг программистов.
-					Чтобы ты был на высоте,
-					тебе нужно набирать баллы,
-					выполняя задачи.
-				4. /task - задачи, которые тебе придется решить.
-					За каждое выполненную задачу ты получаешь 1 балл.
-					Главное, побыстрее выполнить все задачи,
-					так как балл забирает тот, кто первым выполнит задачу.
+					1. Для начала надо зарегистрироваться.
+					Просто отправь мне текст /regme.
+					После этого ты сможешь увидеть себя в /top.
 
-					Стань победителем CHIT CHAMP и выиграй 1.000.000.000 рублей (нет).
-				Ты получишь мотивацию развиваться, как программист."""
+					3. /top - это рейтинг программистов.
+					Чтобы быть на высоте, тебе нужно набирать баллы, выполняя задачи.
 
-			send_message(chat_id, start_text)
+					4. /task - задачи, которые тебе придется решить.
+					За каждую выполненную задачу ты получаешь 1 балл.
+					Балл забирает тот, кто первым выполнит задачу.
+					Ответы нужно присылать примерно так: "JANE" (без кавычек).
+					Чтобы отвечать на задачи, нужно сначала зарегистрироваться.
+					Чтобы зарегистрироваться, отправь мне /regme.
+
+					Стань победителем CHIT CHAMP и докажи, что ты лучший.
+					"""
+				send_message(chat_id, text)
+	
+	# запрет на запуск бота в других чатах
+	if chat_id != configurations.group_id and user_id != admin_id:
+			text = """
+				Мне запрещено общаться вне группы CHITCOM.
+				Если у тебя есть вопросы, то можешь написать моим разработчикам:
+				@azamat_human
+				@efive
+				@arbios
+			"""
+			send_message(chat_id, text)
+			raise Exception('Попытались мне написать в чате: ' + str(chat_id))
+
+	# команды для участников
+	elif message_text[0] == "/":
+		words = message_text.split()
+		command = words[0][1:]
+
+		if command == "regme" or command == "regme@chit_champ_bot":
+			this_user = True
+			for i in top_items:
+				if int(user_id) == i['id']:
+					send_message(chat_id, 'Ты уже ранее был зарегистрирован\nСмотри в /top')
+					this_user = False
+					break
+			
+			if this_user == True:
+				top_table.put_item(
+				   Item={
+				   		'id' : user_id,
+				        'nickname': username,
+				        'name': name,
+				        'points': 0
+				    }
+				)
+				send_message(chat_id, "Я занес тебя в список участников\nСмотри в /top")
 
 		elif command == "task" or command == "task@chit_champ_bot":
 
@@ -118,54 +150,60 @@ def point(event, context):
 
 			send_message(chat_id, '%s' % top_text.strip())
 
-	# сравнение ответов
+	# сравнение ответов участников
 	else:
-		for i in tasks_items:
-			solution = "%s%s:%s" % ('task', i['id'], i['solution'])
-			if message_text.replace(' ', '') == solution and i['winner'] == '0':
-				answer = """@%s решил Задачу №%s и получил 1 балл.
-					Решение: %s.
-					Чтоб перейти на следующее задание, введите /task
-					""" % (username, i['id'], i['solution'])
-
-				# добавляем правильно ответившего в поле winner
-				tasks_table.update_item(
-				    Key={
-				        'id': i['id']
-				    },
-				    UpdateExpression='SET winner = :val1',
-				    ExpressionAttributeValues={
-				        ':val1': username
-				    }
-				)
-
-				# добавляем балл за верный ответ
-				for i in top_items:
-					if i['id'] == int(user_id):
-						point = i['points']
-
-				top_table.update_item(
-				    Key={
-				        'id': user_id
-				    },
-				    UpdateExpression='SET points = :val1',
-				    ExpressionAttributeValues={
-				        ':val1': point + 1
-				    }
-				)
-
-				send_message(chat_id, answer)
+		top_id = 0
+		for i in top_items:
+			if user_id == i['id']:
+				top_id = i['id']
 				break
 
-			elif message_text.replace(' ', '') == solution:
-				answer = """Эту задачу уже решил @%s.
-					Решение: %s.
-					Вы должны решить уже следующую задачу.
-					Чтоб перейти к действующей задаче, введите /task
-					""" % (i['winner'], i['solution'])
+		if user_id == top_id:
+			for i in tasks_items:
+				if message_text == i['solution'] and i['winner'] == '0':
+					text = """@%s решил задачу №%s и получил 1 балл.
+						Решение: %s.
+						Чтоб перейти на следующее задание, введите /task
+						""" % (username, i['id'], i['solution'])
 
-				send_message(chat_id, answer)
-				break
+					# добавляем правильно ответившего в поле winner
+					tasks_table.update_item(
+					    Key={
+					        'id': i['id']
+					    },
+					    UpdateExpression='SET winner = :val1',
+					    ExpressionAttributeValues={
+					        ':val1': username
+					    }
+					)
+
+					# добавляем балл за верный ответ
+					for i in top_items:
+						if i['id'] == int(user_id):
+							point = i['points']
+
+					top_table.update_item(
+					    Key={
+					        'id': user_id
+					    },
+					    UpdateExpression='SET points = :val1',
+					    ExpressionAttributeValues={
+					        ':val1': point + 1
+					    }
+					)
+
+					send_message(chat_id, text)
+					break
+
+				elif message_text == i['solution']:
+					text = """Эту задачу уже решил @%s.
+						Решение: %s.
+						Ты должен решить уже следующую задачу.
+						Чтоб перейти к действующей задаче, введите /task
+						""" % (i['winner'], i['solution'])
+
+					send_message(chat_id, text)
+					break
 
 
 def send_message(chat_id, text):
