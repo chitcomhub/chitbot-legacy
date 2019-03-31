@@ -3,6 +3,7 @@
 import requests
 import configurations # содержит токен и id группы
 import boto3
+from datetime import datetime
 
 def point(event, context):
 	print(event)
@@ -11,6 +12,7 @@ def point(event, context):
 	top_table = dynamodb.Table('top')
 	tasks_table = dynamodb.Table('tasks')
 	admin_table = dynamodb.Table('admin')
+	champ_table = dynamodb.Table('champ')
 
 	# достаем из БД DynamoDB таблицу tasks
 	response = tasks_table.scan()
@@ -24,15 +26,28 @@ def point(event, context):
 	response = admin_table.scan()
 	admin_items = response['Items']
 
+	# достаем из БД DynamoDB таблицу champ
+	response = champ_table.scan()
+	champ_items = response['Items']
+
 	message_text = event["message"]["text"]
 	chat_id = event["message"]["chat"]["id"]
 	username = event["message"]["from"]["username"]
 	user_id = event["message"]["from"]["id"]
 	name = event["message"]["from"]["first_name"]
+	timestamp = event["message"]["date"]
+
+	for i in champ_items:
+		champ_date = i['timestamp']
+
+	now_time = datetime.now().strftime('%H:%M:%S')
+	ts = champ_date - timestamp
+	hours_left = datetime.utcfromtimestamp(ts).strftime('%H:%M:%S')
 
 	# команды для админа
 	for i in admin_items:
 		admin_id = i['id']
+
 		if message_text[0] == "/" and user_id == admin_id:
 			words = message_text.split()
 			command = words[0][1:]
@@ -55,7 +70,7 @@ def point(event, context):
 			elif command == "start" or command == "start@chit_champ_bot":
 				text = """
 					Начнем турнир по программированию CHIT CHAMP.
-					Турнир определит сильнейших программистов в CHITCOM комьюнити.
+					\nТурнир определит сильнейших программистов в CHITCOM комьюнити.
 
 					1. Для начала надо зарегистрироваться.
 					Просто отправь мне текст /regme.
@@ -70,8 +85,7 @@ def point(event, context):
 					Ответы нужно присылать примерно так: "JANE" (без кавычек).
 					Чтобы отвечать на задачи, нужно сначала зарегистрироваться.
 					Чтобы зарегистрироваться, отправь мне /regme.
-
-					Стань победителем CHIT CHAMP и докажи, что ты лучший.
+					\nСтань победителем CHIT CHAMP и докажи, что ты лучший.
 					"""
 				send_message(chat_id, text)
 	
@@ -113,23 +127,30 @@ def point(event, context):
 
 		elif command == "task" or command == "task@chit_champ_bot":
 
-			# функция сортирует по столбцу id
-			def get_key(key):
-				return key['id']
+			if champ_date > timestamp:
+				text = """
+				Ты куда-то торопишься, %s?\nДо начала турнира еще есть время.
+				\nА точнее: \n%s (час, минута, секунда)""" % (username, hours_left)
+				send_message(chat_id, text)
 
-			sorted_items = sorted(tasks_items, key = get_key)
+			else:
+				# функция сортирует по столбцу id
+				def get_key(key):
+					return key['id']
 
-			end_game = True
-			for i in sorted_items:
-				if i['winner'] == "0":
-					tasks_text = "Задача №%s: \n\t%s\n\n" % (i['id'], i['task'])
-					send_message(chat_id, tasks_text)
-					end_game = False
-					break
-			if end_game == True:
-				end_text = """Турнир окончен.
-				Наберите /top, чтобы увидеть рейтинг программистов"""
-				send_message(chat_id, end_text)
+				sorted_items = sorted(tasks_items, key = get_key)
+
+				end_game = True
+				for i in sorted_items:
+					if i['winner'] == "0":
+						tasks_text = "Задача №%s: \n\t%s\n\n" % (i['id'], i['task'])
+						send_message(chat_id, tasks_text)
+						end_game = False
+						break
+				if end_game == True:
+					end_text = """Турнир окончен.
+					Наберите /top, чтобы увидеть рейтинг программистов"""
+					send_message(chat_id, end_text)
 
 		elif command == "top" or command == "top@chit_champ_bot":
 
