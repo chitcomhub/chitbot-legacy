@@ -4,6 +4,7 @@ import requests
 import configurations # содержит токен и id группы
 import boto3
 from datetime import datetime
+import random
 
 def point(event, context):
 	print(event)
@@ -13,6 +14,7 @@ def point(event, context):
 	tasks_table = dynamodb.Table('tasks')
 	admin_table = dynamodb.Table('admin')
 	champ_table = dynamodb.Table('champ')
+	books_table = dynamodb.Table('books')
 
 	# достаем из БД DynamoDB таблицу tasks
 	response = tasks_table.scan()
@@ -29,6 +31,10 @@ def point(event, context):
 	# достаем из БД DynamoDB таблицу champ
 	response = champ_table.scan()
 	champ_items = response['Items']
+
+	# достаем из БД DynamoDB таблицу books
+	response = books_table.scan()
+	books_items = response['Items']
 
 	message_text = event["message"]["text"]
 	chat_id = event["message"]["chat"]["id"]
@@ -101,6 +107,60 @@ def point(event, context):
 			send_message(chat_id, text)
 			raise Exception('Попытались мне написать в чате: ' + str(chat_id))
 
+
+	# бот библиотекарь
+	if message_text == "/addbook" or message_text == "/addbook@chit_champ_bot":
+		text = "Чтобы добавить книгу, введите примерно такой текст:\n\n/addbook=Марк Лутц/Изучаем Python/2010/Русский"
+		send_message(chat_id, text)
+
+	elif "/addbook=" in message_text:
+		for i in books_items:
+			# if int(user_id) == i['id']:
+			# 	send_message(chat_id, "Введите \"/addbook=Марк Лутц/Изучаем Python/2010/Русский\" (без кавычек)")
+			# 	break
+		
+			message_list = message_text.replace("/addbook=", "")
+			message_list = message_list.split("/")
+			author = message_list[0]
+			title = message_list[1]
+			year = message_list[2]
+			language = message_list[3]
+
+			books_table.put_item(
+			   Item={
+			   		'id': random.randint(1, 10000000),
+			        'author': author,
+			        'title': title,
+			        'year': year,
+			        'language': language,
+			   		'owner': username
+			    }
+			)
+			send_message(chat_id, "Добавлена книга %s от @%s\nСмотри в /books" % (title, username))
+
+	elif message_text == "/books" or message_text == "/books@chit_champ_bot":
+		# функция сортирует по столбцу id
+			def get_key(key):
+				return key['id']
+
+			sorted_items = sorted(books_items, key = get_key, reverse = True)
+
+			n = 0
+			book_text = 'Библиотека:\n\nАвтор | Название | Дата | Перевод | Владелец\n\n'
+			for i in sorted_items:
+				n += 1
+				book_text += "%i. %s  | %s | %s | %s | @%s\n" % (
+					n,
+					i['author'],
+					i['title'],
+					i['year'],
+					i['language'],
+					i['owner']
+				)
+
+			send_message(chat_id, '%s' % book_text.strip())
+
+
 	# команды для участников
 	elif message_text[0] == "/":
 		words = message_text.split()
@@ -130,7 +190,7 @@ def point(event, context):
 			if champ_date > timestamp:
 				text = """
 				Ты куда-то торопишься, %s?\nДо начала турнира еще есть время.
-				\nА точнее: \n%s (час, минута, секунда)""" % (username, hours_left)
+				\nЕсли быть точнее, то: \n%s (час, минута, секунда)""" % (name, hours_left)
 				send_message(chat_id, text)
 
 			else:
@@ -170,6 +230,9 @@ def point(event, context):
 					i['points'])
 
 			send_message(chat_id, '%s' % top_text.strip())
+
+	elif message_text == "Пока, бот":
+		send_message(chat_id, "Пока, %s" % name)
 
 	# сравнение ответов участников
 	else:
